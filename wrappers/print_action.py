@@ -9,5 +9,5 @@ class PrintActionWrapper(gym.Wrapper):
     
     
     def step(self, action):
-        print(action, sep=", ")
+        print(action, end=", ")
         return super().step(action)

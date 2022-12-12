@@ -23,7 +23,6 @@ class OneStepEpWrapper(gym.Wrapper):
         for a in action:
             _, r, ter, tru, info = super().step(a)
             
-        r = (r - 0.12) * 100
         return 0, r, ter, tru, info
        
        

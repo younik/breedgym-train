@@ -15,20 +15,22 @@ class ContinuousWrapper(gym.Wrapper):
         self.start = self.env.action_space.start
     
     def _step_to_obs(self):
-        return self.step_id / 5 - 1
+        obs = self.step_id / 5 - 1
+        return np.full((self.env.n_envs, 1), obs)
         
     def reset(self):
         self.step_id = np.zeros(1)
-        _, info = super().reset()
-        
-        return self._step_to_obs(), info
+        self.env.reset()
+        return self._step_to_obs()
 
-    def step(self, action):
+    def step_async(self, action):
         self.step_id += 1
         
-        kbest_action = (action[0] + 1) / 2
+        kbest_action = (action + 1) / 2
         kbest_action = kbest_action * self.n + self.start
-        kbest_action = round(kbest_action)
-        _, r, ter, tru, info = super().step(kbest_action)
+        kbest_action = np.round(kbest_action)
+        return self.env.step_async(kbest_action)
         
-        return self._step_to_obs(), r, ter, tru, info
+    def step_wait(self):
+        _, r, dones, info = self.env.step_wait()
+        return self._step_to_obs(), r, dones, info

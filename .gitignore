@@ -2,3 +2,16 @@ runs
 wandb
 networks/__pycache__
 wrappers/__pycache__
+__pycache__/config.cpython-310.pyc
+__pycache__/configs.cpython-310.pyc
+.gitignore
+.vscode/launch.json
+callbacks/__pycache__/eval_callback.cpython-310.pyc
+outs
+scripts/__pycache__/__init__.cpython-310.pyc
+scripts/__pycache__/profile.cpython-310.pyc
+scripts/__pycache__/selection_index_run.cpython-310.pyc
+scripts/__pycache__/simplified_rl_action.cpython-310.pyc
+wrappers/vector/__pycache__/adapt_vec_env.cpython-310.pyc
+wrappers/vector/__pycache__/continuous_wrapper.cpython-310.pyc
+wrappers/vector/__pycache__/unbatch_wrapper.cpython-310.pyc
