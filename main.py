@@ -1,3 +1,5 @@
+import sys
+import traceback
 import wandb
 import importlib
 import argparse
@@ -75,6 +77,9 @@ if __name__ == "__main__":
         
         try:
             main(config)
+        except Exception as e:
+            print(e)
+            print(traceback.print_exc(), file=sys.stderr)
         finally:
             if config.profile:
                 jax.profiler.stop_trace()
