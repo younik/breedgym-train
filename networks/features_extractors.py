@@ -1,6 +1,7 @@
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 import torch
 from torch import nn
+import numpy as np
 
 class NoFeaturesExtractor(BaseFeaturesExtractor):
 
@@ -32,20 +33,29 @@ class GEBVCorrcoefExtractor(BaseFeaturesExtractor):
         
         return self.non_linearity(cat_out)
     
-class CNNFeaturesExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, features_dim=10_000, out_dimension=128):
+
+class MaskedMarkerEffects(BaseFeaturesExtractor):
+    
+    def __init__(self, observation_space, marker_effects, features_dim=10_000):
         super().__init__(observation_space, features_dim=features_dim)
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self.out_dimension = out_dimension
-        
-        self.network = nn.Sequential(
-            nn.Conv1d(2, 8, 256, 64),
-            nn.ReLU(),
-            nn.Conv1d(8, 1, 8, 2)
-        ).to(device)
+        marker_effects = np.asarray(marker_effects)
+        self.marker_effects = torch.from_numpy(marker_effects).to(device)
         
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        x = observations.reshape(-1, observations.shape[2], 2)
-        x = x.permute(0, 2, 1)
-        out = self.network(x)
+        return observations * self.marker_effects[None, None, :, None] 
+    
+class AppendMarkerEffects(BaseFeaturesExtractor):
+    
+    def __init__(self, observation_space, marker_effects, features_dim=10_000):
+        super().__init__(observation_space, features_dim=features_dim)
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        marker_effects = np.asarray(marker_effects)
+        self.marker_effects = torch.from_numpy(marker_effects).to(device)
+        
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        mrk_effects = torch.broadcast_to(
+            self.marker_effects[None, None, :], observations.shape[:-1]
+        )
+        out = torch.cat((observations, mrk_effects[..., None]), dim=-1)
         return out
