@@ -1,26 +1,37 @@
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 import numpy as np
+import jax.numpy as jnp
+import cupy
 
 
 class AdaptVecEnv(VecEnv):
     
     def __init__(self, gym_vec_env):
         self.gym_vec_env = gym_vec_env
+        
         super().__init__(
             self.gym_vec_env.num_envs,
             self.gym_vec_env.single_observation_space,
             self.gym_vec_env.single_action_space
         )
-
+        
     def reset(self):
-        return self.gym_vec_env.reset()
+        obs, _ = self.gym_vec_env.reset()
+
+        # see https://github.com/pytorch/pytorch/issues/32868
+        return cupy.asarray(obs)
 
     def step_async(self, actions):
         return self.gym_vec_env.step_async(actions)
 
     def step_wait(self):
-        return self.gym_vec_env.step_wait()
-    
+        obs, rew, ter, tru, infos = self.gym_vec_env.step_wait()
+        # adapt_infos = [{k: v[i] for k, v in infos.items()} 
+        #               for i in range(self.num_envs)]
+        adapt_infos = [{}] * self.num_envs
+        
+        return cupy.asarray(obs), rew, jnp.logical_or(ter, tru), adapt_infos
+
     def seed(self, seed=None):
         return self.gym_vec_env.seed(seed=seed)
 
