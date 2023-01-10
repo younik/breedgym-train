@@ -5,8 +5,9 @@ import numpy as np
 
 class NoFeaturesExtractor(BaseFeaturesExtractor):
 
-    def __init__(self, observation_space, features_dim=10_000):
-        super(NoFeaturesExtractor, self).__init__(observation_space, features_dim=features_dim)
+    def __init__(self, observation_space):
+        super().__init__(observation_space, features_dim=observation_space.shape[-2])
+        self.output_shape = observation_space.shape
         
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return observations
@@ -36,19 +37,28 @@ class GEBVCorrcoefExtractor(BaseFeaturesExtractor):
 
 class MaskedMarkerEffects(BaseFeaturesExtractor):
     
-    def __init__(self, observation_space, marker_effects, features_dim=10_000):
-        super().__init__(observation_space, features_dim=features_dim)
+    def __init__(self, observation_space, marker_effects, normalize=True):
+        super().__init__(observation_space, features_dim=observation_space.shape[-2])
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self.output_shape = observation_space.shape
+        
         marker_effects = np.asarray(marker_effects)
-        self.marker_effects = torch.from_numpy(marker_effects).to(device)
+        if normalize: 
+            marker_effects = (marker_effects - marker_effects.min()) / (marker_effects.max() - marker_effects.min())
+            marker_effects *= 2
+            marker_effects -= 1
+        self.values = torch.from_numpy(marker_effects).to(device)
         
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        return observations * self.marker_effects[None, None, :, None] 
+        return observations * self.values[None, None, :, None] 
     
 class AppendMarkerEffects(BaseFeaturesExtractor):
     
-    def __init__(self, observation_space, marker_effects, features_dim=10_000):
-        super().__init__(observation_space, features_dim=features_dim)
+    def __init__(self, observation_space, marker_effects):
+        super().__init__(observation_space, features_dim=observation_space.shape[-2])
+        output_shape = observation_space.shape
+        output_shape[-1] += 1
+        self.output_shape = output_shape
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         marker_effects = np.asarray(marker_effects)
         self.marker_effects = torch.from_numpy(marker_effects).to(device)
