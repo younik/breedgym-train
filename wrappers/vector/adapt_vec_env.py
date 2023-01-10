@@ -2,6 +2,7 @@ from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 import numpy as np
 import jax.numpy as jnp
 import cupy
+import torch
 
 
 class AdaptVecEnv(VecEnv):
@@ -19,7 +20,7 @@ class AdaptVecEnv(VecEnv):
         obs, _ = self.gym_vec_env.reset()
 
         # see https://github.com/pytorch/pytorch/issues/32868
-        return cupy.asarray(obs)
+        return torch.as_tensor(cupy.asarray(obs))
 
     def step_async(self, actions):
         return self.gym_vec_env.step_async(actions)
@@ -30,7 +31,8 @@ class AdaptVecEnv(VecEnv):
         #               for i in range(self.num_envs)]
         adapt_infos = [{}] * self.num_envs
         
-        return cupy.asarray(obs), rew, jnp.logical_or(ter, tru), adapt_infos
+        obs = torch.as_tensor(cupy.asarray(obs))
+        return obs, rew, jnp.logical_or(ter, tru), adapt_infos
 
     def seed(self, seed=None):
         return self.gym_vec_env.seed(seed=seed)
