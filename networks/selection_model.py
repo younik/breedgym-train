@@ -5,29 +5,51 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 
 class SelectionIndex(nn.Module):
 
-    def __init__(self, input_shape, policy_hiddens=[16], value_hiddens=[]) -> None:
+    def __init__(
+        self,
+        input_shape,
+        kwargs_conv1={"out_channels": 16, "kernel_size": 256, "stride": 64},
+        kwargs_conv2={"out_channels": 1, "kernel_size": 8, "stride": 2},
+        max_pooling_size=1,
+        policy_hiddens=[16],
+        value_hiddens=[]
+        ) -> None:
         super().__init__()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        if policy_hiddens is None:
+            self.policy_hiddens = []
+        elif isinstance(policy_hiddens, int):
+            self.policy_hiddens = [policy_hiddens]
+        else:
+            self.policy_hiddens = policy_hiddens
+        
+        if value_hiddens is None:
+            self.value_hiddens = []
+        elif isinstance(value_hiddens, int):
+            self.value_hiddens = [value_hiddens]
+        else:
+            self.value_hiddens = value_hiddens
+        
         self.latent_dim_pi = 1
         self.latent_dim_vf = 1
         
         self.shared_network = nn.Sequential(
-            nn.Conv1d(input_shape[-1], 8, 256, 64),
+            nn.Conv1d(input_shape[-1], kwargs_conv1["out_channels"], kwargs_conv1["kernel_size"], kwargs_conv1["stride"]),
             nn.ReLU(),
-            nn.Conv1d(8, 1, 8, 2)
+            nn.MaxPool1d(max_pooling_size, max_pooling_size),
+            nn.Conv1d(kwargs_conv1["out_channels"], kwargs_conv2["out_channels"], kwargs_conv2["kernel_size"], kwargs_conv2["stride"]),
         ).to(self.device)
         
         sample = torch.zeros(input_shape, device=self.device)
         with torch.no_grad():
             out_sample = self.shared_forward(sample)
         
-        self.policy_hiddens = policy_hiddens
         self.policy_net = self._make_net(
             self.policy_hiddens, features_dim=out_sample.shape[-1]
         )
         self.policy_net.append(nn.Tanh())
         
-        self.value_hiddens = value_hiddens
         self.value_net = self._make_net(
             self.value_hiddens,  features_dim=out_sample.shape[-1]
         )
@@ -65,7 +87,7 @@ class SelectionIndex(nn.Module):
         batch_pop = batch_pop.permute(0, 2, 1)
 
         features = self.shared_network(batch_pop)
-        return features.reshape(*x.shape[:-2], *features.shape[1:]).squeeze()
+        return features.reshape(*x.shape[:-2], -1)
 
     def forward(self, x):
         features = self.shared_forward(x)
@@ -79,6 +101,9 @@ class SelectionAC(ActorCriticPolicy):
         action_space,
         lr_schedule,
         net_arch=None,
+        kwargs_conv1={"out_channels": 16, "kernel_size": 256, "stride": 64},
+        kwargs_conv2={"out_channels": 1, "kernel_size": 8, "stride": 2},
+        max_pooling_size=1,
         policy_hiddens=[16],
         value_hiddens=[],
         activation_fn=nn.Tanh,
@@ -88,6 +113,10 @@ class SelectionAC(ActorCriticPolicy):
 
         self.policy_hiddens = policy_hiddens
         self.value_hiddens = value_hiddens
+        self.kwargs_conv1 = kwargs_conv1
+        self.kwargs_conv2 = kwargs_conv2
+        self.max_pooling_size = max_pooling_size
+        
         super(SelectionAC, self).__init__(
             observation_space,
             action_space,
@@ -108,5 +137,8 @@ class SelectionAC(ActorCriticPolicy):
         self.mlp_extractor = SelectionIndex(
             input_shape=self.features_extractor.output_shape,
             policy_hiddens=self.policy_hiddens,
-            value_hiddens=self.value_hiddens
+            value_hiddens=self.value_hiddens,
+            kwargs_conv1=self.kwargs_conv1,
+            kwargs_conv2=self.kwargs_conv2,
+            max_pooling_size=self.max_pooling_size
         )
