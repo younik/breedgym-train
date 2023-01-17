@@ -4,7 +4,8 @@ import wandb
 import importlib
 import argparse
 import os
-import multiprocessing
+import pdb
+import random
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -27,7 +28,9 @@ if __name__ == "__main__":
     parser.add_argument('--sweep_id', type=str, default=None, help='Wandb sweep id of the launch')
     parser.add_argument('--n_envs', type=int, default=1, help='Number of train env')
     parser.add_argument('--n_eval_envs', type=int, default=1, help='Number of eval env')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed')
     parser.add_argument('--profile', type=bool, default=False, help='Profile code')
+    parser.add_argument('--debug', type=bool, default=False, help='Debug code using pdb')
 
     parsed, unknown = parser.parse_known_args()
     for arg in unknown:
@@ -35,6 +38,8 @@ if __name__ == "__main__":
             parser.add_argument(arg.split('=')[0], type=float)
             
     config = parser.parse_args()
+    if config.seed is None:
+        config.seed = random.randint(0, 2 ** 32 - 1)
     config.unique_name = f"{config.name}_{config.jobid}"
     
     def launch():    
@@ -76,9 +81,8 @@ if __name__ == "__main__":
         main = getattr(script, "main")
         
         try:
-            main(config)
+            pdb.runcall(main, config) if config.debug else main(config)
         except Exception as e:
-            print(e)
             print(traceback.print_exc(), file=sys.stderr)
         finally:
             if config.profile:

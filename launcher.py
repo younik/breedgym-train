@@ -2,9 +2,10 @@ import subprocess
 import tempfile
 import os
 import pathlib
+import logging
 import configs
 
-config = configs.config_kbest_transf
+config = configs.masked_gebv_cnn
 
 def get_launch_args():
     args = config.items()
@@ -78,14 +79,40 @@ def map_data_size():
     
     config.update(data_map[config["data_size"]])
 
-
-if __name__ == "__main__":
-    make_paths()
-    map_data_size()
-    n_launches = config.pop("n_launches", 1)    
+def sbatch_launch(n_launches):
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".sbatch", delete=False)
     f.write(template(**config))
     f.close()
     for _ in range(n_launches):
         subprocess.call(["sbatch", f.name])
     os.unlink(f.name)
+    
+def srun_launch(nodes=1, cpus=1, gpus=1, memory=100_000, **kwargs):
+    args = [
+        f"--nodes={nodes}",
+        f"--cpus-per-task={cpus}",
+        f"--mem-per-cpu={memory}"
+    ]
+    if gpus > 0:
+        args.append(f"--gpus-per-node={gpus}")
+    
+    args.append(f"python main.py {get_launch_args()}")
+    subprocess.call(' '.join(["srun", *args]), shell=True)
+
+
+if __name__ == "__main__":
+    make_paths()
+    map_data_size()
+    n_launches = config.pop("n_launches", 1)
+
+    debug_mode = config.get("debug", False)
+    if debug_mode and not n_launches != 1:
+        logging.warning("Debug mode: ignoring n_launches argument.")
+    if debug_mode and not config.get("disable_wandb", False):
+        logging.warning("Debug mode: disabling Weights and Biases.")
+        config["disable_wandb"] = True
+    
+    if debug_mode:
+        srun_launch(**config)
+    else:
+        sbatch_launch(n_launches)
