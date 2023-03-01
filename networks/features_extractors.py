@@ -56,9 +56,7 @@ class AppendMarkerEffects(BaseFeaturesExtractor):
     
     def __init__(self, observation_space, marker_effects):
         super().__init__(observation_space, features_dim=observation_space.shape[-2])
-        output_shape = observation_space.shape
-        output_shape[-1] += 1
-        self.output_shape = output_shape
+        self.output_shape = *observation_space.shape[:-1], observation_space.shape[-1] + 1
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         marker_effects = np.asarray(marker_effects)
         self.marker_effects = torch.from_numpy(marker_effects).to(device)
@@ -68,4 +66,31 @@ class AppendMarkerEffects(BaseFeaturesExtractor):
             self.marker_effects[None, None, :], observations.shape[:-1]
         )
         out = torch.cat((observations, mrk_effects[..., None]), dim=-1)
+        return out
+    
+    
+class MaxMinMarkerEffects(BaseFeaturesExtractor):
+    
+    def __init__(self, observation_space, marker_effects):
+        super().__init__(observation_space, features_dim=observation_space.shape[-2])
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self.output_shape = *observation_space.shape[:-1], observation_space.shape[-1] + 2
+
+        marker_effects = np.asarray(marker_effects)
+        marker_effects = (marker_effects - marker_effects.min()) / (marker_effects.max() - marker_effects.min())
+        marker_effects *= 2
+        marker_effects -= 1
+        self.values = torch.from_numpy(marker_effects).to(device)
+        
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        masked_mrk = observations * self.values[None, None, :, None]
+        out = torch.cat(
+            (
+                masked_mrk,
+                masked_mrk.max(dim=-1, keepdim=True).values,
+                masked_mrk.min(dim=-1, keepdim=True).values
+            ),
+            dim=-1
+        )
+        
         return out

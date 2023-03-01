@@ -18,20 +18,28 @@ class AdaptVecEnv(VecEnv):
         
     def reset(self):
         obs, _ = self.gym_vec_env.reset()
+        
+        if torch.cuda.is_available():
+            # see https://github.com/pytorch/pytorch/issues/32868
+            obs = torch.as_tensor(cupy.asarray(obs))
+        else:
+            obs = np.asarray(obs)
 
-        # see https://github.com/pytorch/pytorch/issues/32868
-        return torch.as_tensor(cupy.asarray(obs))
+        return obs
 
     def step_async(self, actions):
         return self.gym_vec_env.step_async(actions)
 
     def step_wait(self):
         obs, rew, ter, tru, infos = self.gym_vec_env.step_wait()
-        # adapt_infos = [{k: v[i] for k, v in infos.items()} 
-        #               for i in range(self.num_envs)]
-        adapt_infos = [{}] * self.num_envs
-        
-        obs = torch.as_tensor(cupy.asarray(obs))
+        adapt_infos = [{k: v[i] for k, v in infos.items()} 
+                      for i in range(self.num_envs)]
+
+        if torch.cuda.is_available():
+            obs = torch.as_tensor(cupy.asarray(obs))
+        else:
+            obs = np.asarray(obs)
+
         return obs, rew, jnp.logical_or(ter, tru), adapt_infos
 
     def seed(self, seed=None):

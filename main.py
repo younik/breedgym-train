@@ -81,7 +81,7 @@ if __name__ == "__main__":
         main = getattr(script, "main")
         
         try:
-            pdb.runcall(main, config) if config.debug else main(config)
+            main(config)
         except Exception as e:
             print(traceback.print_exc(), file=sys.stderr)
         finally:
