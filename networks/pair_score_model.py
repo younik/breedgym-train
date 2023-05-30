@@ -1,6 +1,7 @@
 from typing import Sequence
 import torch
 from torch import nn
+import torch.nn.functional as F
 from stable_baselines3.common.policies import ActorCriticPolicy
 
 
@@ -8,79 +9,95 @@ class PairScoreModel(nn.Module):
 
     def __init__(
         self,
-        input_shape,
-        value_hiddens=[]
+        features_dim,
+        value_hiddens=[32],
+        actor_hiddens=[128],
+        gen_features_dim=1,
         ) -> None:
         super().__init__()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        if value_hiddens is None:
-            self.value_hiddens = []
-        elif isinstance(value_hiddens, Sequence):
+        self.gen_features_dim = gen_features_dim
+
+        if isinstance(value_hiddens, Sequence):
             self.value_hiddens = value_hiddens
         else:
             self.value_hiddens = [int(value_hiddens)]
-        
+        if isinstance(actor_hiddens, Sequence):
+            self.actor_hiddens = actor_hiddens
+        else:
+            self.actor_hiddens = [int(actor_hiddens)]
+
         self.latent_dim_pi = 1
-        self.latent_dim_vf = 200
+        self.latent_dim_vf = 1
+
+        self.gen_actor_net = torch.jit.script(
+            nn.Sequential(
+                nn.Linear(1, self.gen_features_dim),
+                nn.LeakyReLU()
+            ).to(self.device)
+        )
         
-        self.shared_network = nn.Sequential(
-            nn.Conv1d(input_shape[-1], 128, 256, 32),
-            nn.ReLU(),
-            nn.Conv1d(128, 16, 8, 2),
-        ).to(self.device)
+        value_features = [features_dim + gen_features_dim] + self.value_hiddens + [1]
+        self.value_net = self._make_net(value_features)
         
-        self.pop_size = input_shape[0]
-        sample = torch.zeros(input_shape, device=self.device)
-        with torch.no_grad():
-            out_sample = self.shared_forward(sample)
-        
-        features = [2 * out_sample.shape[-1]] + self.value_hiddens + [1]
-        self.features_value_net = nn.Sequential()
-        for i in range(len(features) - 1):
-            self.features_value_net.append(
+        actor_features = [features_dim + gen_features_dim] + self.actor_hiddens
+        self.features_actor_net = nn.Identity()
+        if len(actor_features) > 1:
+            self.features_actor_net = self._make_net(actor_features)
+            
+        self.actor_keys = torch.jit.script(nn.Linear(64, 64))
+        self.actor_queries = torch.jit.script(nn.Linear(64, 64))
+
+    def _make_net(self, features):
+        net = nn.Sequential(
+            nn.Linear(features[0], features[1])
+        )
+        for i in range(1, len(features) - 1):
+            net.append(nn.ReLU())
+            net.append(
                 nn.Linear(features[i], features[i+1])
             )
-            self.features_value_net.append(nn.ReLU())
+
+        return torch.jit.script(net.to(self.device))
 
     def forward_actor(self, x):
-        features = self.shared_forward(x)
+        features = self.shared_net(x)
         return self._forward_actor(features)
 
-    def _forward_actor(self, features):        
-        out = torch.einsum('bnf,bmf->bnm', features, features)
-        return out.flatten(start_dim=1)
+    def _forward_actor(self, input_):
+        features = self.features_actor_net(input_)
+        # keys = self.actor_keys(features)
+        # queries = self.actor_queries(features)
+        # out = torch.einsum('bnf,bmf->bnm', keys, queries)
+        out = -F.cosine_similarity(features.unsqueeze(1), features.unsqueeze(2), dim=-1)
+        out = out.flatten(start_dim=-2)
+        return out
 
     def forward_critic(self, x):
-        features = self.shared_forward(x)
-        pair_scores = self._forward_actor(features)
-        return self._forward_critic(features, pair_scores)
+        features = self.shared_net(x)
+        return self._forward_critic(features)
         
-    def _forward_critic(self, features, pair_scores):
-        _, top_indices = torch.topk(pair_scores, k=self.pop_size)
-        top_rows = torch.div(top_indices, self.pop_size, rounding_mode='floor')
-        top_cols = top_indices % self.pop_size
-        top_crosses = torch.stack((top_rows, top_cols), dim=2)
-        nenv_arange = torch.arange(features.shape[0])
-        batched_features = features[nenv_arange[:, None, None], top_crosses]
-        batched_features = batched_features.flatten(start_dim=-2)
-        values = self.features_value_net(batched_features)
-        return values.reshape(values.shape[:-1])
+    def _forward_critic(self, x):
+        values = self.value_net(x)
+        return values.squeeze(-1).mean(axis=-1)
 
-    def shared_forward(self, x):
-        batch_pop = x.reshape(-1, x.shape[-2], x.shape[-1])
-        batch_pop = batch_pop.permute(0, 2, 1)
-
-        features = self.shared_network(batch_pop)
-        return features.reshape(*x.shape[:-2], -1)
+    def shared_net(self, x):
+        features = x['obs']
+        gen_number = x['gen_number']
+        gen_features = self.gen_actor_net(gen_number)
+        gen_features = torch.broadcast_to(
+            gen_features[:, None, :],
+            size=(*features.shape[:-1], gen_features.shape[-1])
+        )
+        return torch.cat([features, gen_features], dim=-1)
 
     def forward(self, x):
-        features = self.shared_forward(x)
-        pair_scores = self._forward_actor(features)
-        return pair_scores, self._forward_critic(features, pair_scores)
+        features = self.shared_net(x)
+        return self._forward_actor(features), self._forward_critic(features)
 
 
 class PairScoreAC(ActorCriticPolicy):
+
     def __init__(
         self,
         observation_space,
@@ -88,12 +105,16 @@ class PairScoreAC(ActorCriticPolicy):
         lr_schedule,
         net_arch=None,
         value_hiddens=[],
+        actor_hiddens=[256],
+        gen_features_dim=1,
         activation_fn=nn.Tanh,
         *args,
         **kwargs,
     ):
-        
+
         self.value_hiddens = value_hiddens
+        self.actor_hiddens = actor_hiddens
+        self.gen_features_dim = gen_features_dim
 
         super(PairScoreAC, self).__init__(
             observation_space,
@@ -109,9 +130,12 @@ class PairScoreAC(ActorCriticPolicy):
         self.ortho_init = False
 
         self.action_net = nn.Identity()
+        self.value_net = nn.Identity()
 
     def _build_mlp_extractor(self) -> None:
         self.mlp_extractor = PairScoreModel(
-            input_shape=self.features_extractor.output_shape,
+            features_dim=self.features_extractor.features_dim,
             value_hiddens=self.value_hiddens,
+            actor_hiddens=self.actor_hiddens,
+            gen_features_dim=self.gen_features_dim
         )

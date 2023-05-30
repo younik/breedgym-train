@@ -5,7 +5,7 @@ import pathlib
 import logging
 import configs
 
-config = configs.pair_score_a2c
+config = configs.minimal_1k
 
 
 def get_launch_args():
@@ -60,28 +60,44 @@ def make_paths():
 
 def map_data_size():
     data_map = {
+        "sample": dict(
+            genome="sample_geno.npy",
+            genetic_map="sample_genetic_map.txt",
+        ),
+
+        "sample_full_pop": dict(
+            genome="sample_full_pop_gen.npy",
+            genetic_map="sample_genetic_map.txt",
+        ),
+
+        "sample_with_r": dict(
+            genome="sample_geno.npy",
+            genetic_map="sample_with_r_genetic_map.txt",
+        ),
+
         "small": dict(
-            genome="small_geno.txt",
+            genome="small_geno.npy",
             genetic_map="small_genetic_map.txt",
         ),
 
         "medium": dict(
-            genome="medium_geno.txt",
+            genome="medium_geno.npy",
             genetic_map="medium_genetic_map.txt",
         ),
 
         "big": dict(
-            genome="big_geno.txt",
+            genome="big_geno.npy",
             genetic_map="big_genetic_map.txt",
         ),
 
         "full": dict(
-            genome="geno.txt",
+            genome="geno.npy",
             genetic_map="genetic_map.txt",
         ),
     }
 
-    config.update(data_map[config["data_size"]])
+    if "data_size" in config.keys():
+        config.update(data_map[config["data_size"]])
 
 
 def sbatch_launch(n_launches):

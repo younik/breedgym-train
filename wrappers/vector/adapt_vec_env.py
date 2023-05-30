@@ -18,14 +18,7 @@ class AdaptVecEnv(VecEnv):
         
     def reset(self):
         obs, _ = self.gym_vec_env.reset()
-        
-        if torch.cuda.is_available():
-            # see https://github.com/pytorch/pytorch/issues/32868
-            obs = torch.as_tensor(cupy.asarray(obs))
-        else:
-            obs = np.asarray(obs)
-
-        return obs
+        return self._adapt_obs(obs)
 
     def step_async(self, actions):
         return self.gym_vec_env.step_async(actions)
@@ -35,12 +28,19 @@ class AdaptVecEnv(VecEnv):
         adapt_infos = [{k: v[i] for k, v in infos.items()} 
                       for i in range(self.num_envs)]
 
+        new_obs = self._adapt_obs(obs)
+        return new_obs, rew, jnp.logical_or(ter, tru), adapt_infos
+
+    def _adapt_obs(self, obs):
+        if isinstance(obs, dict):
+            return {key: self._adapt_obs(value) for key, value in obs.items()}
+        
         if torch.cuda.is_available():
             obs = torch.as_tensor(cupy.asarray(obs))
         else:
             obs = np.asarray(obs)
-
-        return obs, rew, jnp.logical_or(ter, tru), adapt_infos
+        
+        return obs
 
     def seed(self, seed=None):
         return self.gym_vec_env.seed(seed=seed)
@@ -56,7 +56,7 @@ class AdaptVecEnv(VecEnv):
         return [getattr(self.gym_vec_env, attr_name)] * len_indices
 
     def set_attr(self, attr_name: str, value, indices=None):
-        setattr(self.gym_vec_env, attr_name, value)
+        self.gym_vec_env.set_attr(attr_name, value)
 
     def env_method(self, method_name: str, *args, indices=None, **kwargs):
         return getattr(self.gym_vec_env, method_name)(*args, **kwargs)

@@ -1,9 +1,12 @@
+from typing import Tuple
 import torch
+from torch.distributions import Normal
 from torch import nn
 from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.preprocessing import get_action_dim
+from stable_baselines3.common.distributions import Distribution, DiagGaussianDistribution, sum_independent_dims
 
-
-class SelectionIndex(nn.Module):
+class FactoredSelectionIndex(nn.Module):
 
     def __init__(
         self,
@@ -76,7 +79,6 @@ class SelectionIndex(nn.Module):
             size=(*features.shape[:-1], gen_features.shape[-1])
         )
         out = self.policy_net(torch.cat([features, gen_features], dim=-1))
-        # out = self.policy_net(x)
         return out.squeeze()
 
     def forward_critic(self, x):
@@ -88,15 +90,14 @@ class SelectionIndex(nn.Module):
             size=(*features.shape[:-1], gen_features.shape[-1])
         )
         out = self.value_net(torch.cat([features, gen_features], dim=-1))
-        # out = self.value_net(x)
-        out = torch.mean(out.squeeze(), axis=-1)
+        #out = torch.mean(out.squeeze(), axis=-1)
         return out
 
     def forward(self, x):
         return self.forward_actor(x), self.forward_critic(x)
 
 
-class SelectionAC(ActorCriticPolicy):
+class FactoredSelectionAC(ActorCriticPolicy):
 
     def __init__(
         self,
@@ -116,7 +117,7 @@ class SelectionAC(ActorCriticPolicy):
         self.value_hiddens = value_hiddens
         self.gen_features_dim = gen_features_dim
 
-        super(SelectionAC, self).__init__(
+        super(FactoredSelectionAC, self).__init__(
             observation_space,
             action_space,
             lr_schedule,
@@ -130,13 +131,32 @@ class SelectionAC(ActorCriticPolicy):
         self.ortho_init = False
 
         self.action_net = nn.Identity()
+        self.log_std = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.value_net = nn.Identity()
+        
+        self.action_dist = FactoredDiagGaussianDistribution(get_action_dim(action_space))
 
 
     def _build_mlp_extractor(self) -> None:
-        self.mlp_extractor = SelectionIndex(
+        self.mlp_extractor = FactoredSelectionIndex(
             features_dim=self.features_extractor.features_dim,
             gen_features_dim=self.gen_features_dim,
             policy_hiddens=self.policy_hiddens,
             value_hiddens=self.value_hiddens,
         )
+
+
+class FactoredDiagGaussianDistribution(DiagGaussianDistribution):
+    
+    def log_prob(self, actions: torch.Tensor) -> torch.Tensor:
+        """
+        Get the log probabilities of actions according to the distribution.
+        Note that you must first call the ``proba_distribution()`` method.
+
+        :param actions:
+        :return:
+        """
+        log_prob = self.distribution.log_prob(actions)
+        #return sum_independent_dims(log_prob)
+        return log_prob
+        
